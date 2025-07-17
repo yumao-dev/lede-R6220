@@ -10,6 +10,17 @@ name: OpenWrt-CI
 on:
   schedule:
     - cron: 0 20 * * *
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      output:
+        description: '无用选项'
+        required: true
+        type: choice
+        default: 'firmware'
+        options:
+          - firmware
+          - config
 
 permissions:
   contents: read
