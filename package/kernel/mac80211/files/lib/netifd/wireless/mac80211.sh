@@ -1,6 +1,7 @@
 #!/bin/sh
 . /lib/netifd/netifd-wireless.sh
 . /lib/netifd/hostapd.sh
+. /lib/functions/system.sh
 
 init_wireless_driver "$@"
 
@@ -50,6 +51,8 @@ drv_mac80211_init_device_config() {
 		rx_antenna_pattern \
 		tx_antenna_pattern \
 		he_spr_sr_control \
+		he_spr_psr_enabled \
+		he_bss_color_enabled \
 		he_twt_required
 	config_add_int \
 		beamformer_antennas \
@@ -137,14 +140,14 @@ mac80211_hostapd_setup_base() {
 	[ -n "$acs_exclude_dfs" ] && [ "$acs_exclude_dfs" -gt 0 ] &&
 		append base_cfg "acs_exclude_dfs=1" "$N"
 
-	json_get_vars noscan ht_coex vendor_vht min_tx_power:0
-	json_get_values ht_capab_list ht_capab tx_burst
+	json_get_vars noscan ht_coex min_tx_power:0 tx_burst vendor_vht
+	json_get_values ht_capab_list ht_capab
 	json_get_values channel_list channels
 
 	[ "$auto_channel" = 0 ] && [ -z "$channel_list" ] && \
 		channel_list="$channel"
 
-	[ "$min_tx_power" -gt 0 ] && append base_cfg "min_tx_power=$min_tx_power"
+	[ "$min_tx_power" -gt 0 ] && append base_cfg "min_tx_power=$min_tx_power" "$N"
 
 	set_default noscan 0
 
@@ -202,7 +205,7 @@ mac80211_hostapd_setup_base() {
 			dsss_cck_40:1
 
 		ht_cap_mask=0
-		for cap in $(iw phy "$phy" info | grep 'Capabilities:' | cut -d: -f2); do
+		for cap in $(iw phy "$phy" info | grep -E '^\s*Capabilities:' | cut -d: -f2); do
 			ht_cap_mask="$(($ht_cap_mask | $cap))"
 		done
 
@@ -268,6 +271,7 @@ mac80211_hostapd_setup_base() {
 				case "$channel" in
 					36|40|44|48|52|56|60|64) idx=50;;
 					100|104|108|112|116|120|124|128) idx=114;;
+					149|153|157|161|165|169|173|177) idx=163;;
 				esac
 			fi
 			enable_ac=1
@@ -325,6 +329,11 @@ mac80211_hostapd_setup_base() {
 		cap_rx_stbc=$((($vht_cap >> 8) & 7))
 		[ "$rx_stbc" -lt "$cap_rx_stbc" ] && cap_rx_stbc="$rx_stbc"
 		vht_cap="$(( ($vht_cap & ~(0x700)) | ($cap_rx_stbc << 8) ))"
+
+		[ "$vht_oper_chwidth" -lt 2 ] && {
+			vht160=0
+			short_gi_160=0
+		}
 
 		mac80211_add_capabilities vht_capab $vht_cap \
 			RXLDPC:0x10::$rxldpc \
@@ -413,29 +422,21 @@ mac80211_hostapd_setup_base() {
 	if [ "$enable_ax" != "0" ]; then
 		json_get_vars \
 			he_su_beamformer:1 \
-			he_su_beamformee:0 \
+			he_su_beamformee:1 \
 			he_mu_beamformer:1 \
 			he_twt_required:0 \
-			he_spr_sr_control:0 \
-			he_spr_non_srg_obss_pd_max_offset:1 \
-			he_bss_color
+			he_spr_sr_control:3 \
+			he_spr_psr_enabled:0 \
+			he_spr_non_srg_obss_pd_max_offset:0 \
+			he_bss_color:128 \
+			he_bss_color_enabled:1
 
-		he_phy_cap=$(iw phy "$phy" info | sed -n '/HE Iftypes: AP/,$p' | awk -F "[()]" '/HE PHY Capabilities/ { print $2 }' | head -1)
+		he_phy_cap=$(iw phy "$phy" info | sed -n '/HE Iftypes: .*AP/,$p' | awk -F "[()]" '/HE PHY Capabilities/ { print $2 }' | head -1)
 		he_phy_cap=${he_phy_cap:2}
-		he_mac_cap=$(iw phy "$phy" info | sed -n '/HE Iftypes: AP/,$p' | awk -F "[()]" '/HE MAC Capabilities/ { print $2 }' | head -1)
+		he_mac_cap=$(iw phy "$phy" info | sed -n '/HE Iftypes: .*AP/,$p' | awk -F "[()]" '/HE MAC Capabilities/ { print $2 }' | head -1)
 		he_mac_cap=${he_mac_cap:2}
 
 		append base_cfg "ieee80211ax=1" "$N"
-
-		if [ -n "$he_bss_color" ]; then
-			append base_cfg "he_bss_color=$he_bss_color" "$N"
-		else
-			he_bss_color=$(head -1 /dev/urandom | tr -dc '0-9' | head -c2)
-			he_bss_color=$(($he_bss_color % 63))
-			he_bss_color=$(($he_bss_color + 1))
-			append base_cfg "he_bss_color=$he_bss_color" "$N"
-		fi
-
 		[ "$hwmode" = "a" ] && {
 			append base_cfg "he_oper_chwidth=$vht_oper_chwidth" "$N"
 			append base_cfg "he_oper_centr_freq_seg0_idx=$vht_center_seg0" "$N"
@@ -445,10 +446,21 @@ mac80211_hostapd_setup_base() {
 			he_su_beamformer:${he_phy_cap:6:2}:0x80:$he_su_beamformer \
 			he_su_beamformee:${he_phy_cap:8:2}:0x1:$he_su_beamformee \
 			he_mu_beamformer:${he_phy_cap:8:2}:0x2:$he_mu_beamformer \
-			he_spr_sr_control:${he_phy_cap:14:2}:0x1:$he_spr_sr_control \
 			he_twt_required:${he_mac_cap:0:2}:0x6:$he_twt_required
 
-		[ "$he_spr_sr_control" -gt 0 ] && append base_cfg "he_spr_non_srg_obss_pd_max_offset=$he_spr_non_srg_obss_pd_max_offset" "$N"
+		if [ "$he_bss_color_enabled" -gt 0 ]; then
+			append base_cfg "he_bss_color=$he_bss_color" "$N"
+			[ "$he_spr_non_srg_obss_pd_max_offset" -gt 0 ] && { \
+				append base_cfg "he_spr_non_srg_obss_pd_max_offset=$he_spr_non_srg_obss_pd_max_offset" "$N"
+				he_spr_sr_control=$((he_spr_sr_control | (1 << 2)))
+			}
+			[ "$he_spr_psr_enabled" -gt 0 ] && he_spr_psr_enabled=$((0x${he_phy_cap:14:2} & 0x1))
+			[ "$he_spr_psr_enabled" -gt 0 ] || he_spr_sr_control=$((he_spr_sr_control | (1 << 0)))
+			append base_cfg "he_spr_sr_control=$he_spr_sr_control" "$N"
+		else
+			append base_cfg "he_bss_color_disabled=1" "$N"
+		fi
+
 
 		append base_cfg "he_default_pe_duration=4" "$N"
 		append base_cfg "he_rts_threshold=1023" "$N"
@@ -674,10 +686,12 @@ mac80211_prepare_vif() {
 
 	json_select ..
 
-	[ -n "$macaddr" ] || {
+	if [ -z "$macaddr" ]; then
 		macaddr="$(mac80211_generate_mac $phy)"
 		macidx="$(($macidx + 1))"
-	}
+	elif [ "$macaddr" = 'random' ]; then
+		macaddr="$(macaddr_random)"
+	fi
 
 	json_add_object data
 	json_add_string ifname "$ifname"
@@ -739,8 +753,7 @@ mac80211_prepare_vif() {
 		;;
 	esac
 
-	# We do not set hostpad macaddr if it is 00:00:00:00:00:00
-	if [ "$mode" != "ap" ] && [ "$macaddr" != "00:00:00:00:00:00" ]; then
+	if [ "$mode" != "ap" ]; then
 		# ALL ap functionality will be passed to hostapd
 		# All interfaces must have unique mac addresses
 		# which can either be explicitly set in the device
@@ -817,8 +830,10 @@ mac80211_setup_supplicant_noctl() {
 
 mac80211_prepare_iw_htmode() {
 	case "$htmode" in
-		VHT20|HT20) iw_htmode=HT20;;
-		HT40*|VHT40|VHT160)
+		HT20|VHT20|HE20|EHT20)
+			iw_htmode=HT20
+		;;
+		HT40*|VHT40|HE40|EHT40)
 			case "$band" in
 				2g)
 					case "$htmode" in
@@ -842,8 +857,11 @@ mac80211_prepare_iw_htmode() {
 			esac
 			[ "$auto_channel" -gt 0 ] && iw_htmode="HT40+"
 		;;
-		VHT80)
-			iw_htmode="80MHZ"
+		VHT80|HE80|EHT80)
+			iw_htmode="80MHz"
+		;;
+		VHT160|HE160|EHT160)
+			iw_htmode="160MHz"
 		;;
 		NONE|NOHT)
 			iw_htmode="NOHT"

@@ -6,7 +6,8 @@ define KernelPackage/drm-rockchip
   SUBMENU:=$(VIDEO_MENU)
   TITLE:=Rockchip DRM support
   DEPENDS:=@TARGET_rockchip +kmod-backlight +kmod-drm-kms-helper \
-	+kmod-multimedia-input +LINUX_6_0:kmod-drm-display-helper
+	+(LINUX_6_1||LINUX_6_6||LINUX_6_12):kmod-drm-display-helper \
+	+kmod-multimedia-input
   KCONFIG:= \
 	CONFIG_DRM_ROCKCHIP \
 	CONFIG_DRM_LOAD_EDID_FIRMWARE=y \
@@ -27,7 +28,8 @@ define KernelPackage/drm-rockchip
 	CONFIG_ROCKCHIP_RK3066_HDMI=n \
 	CONFIG_ROCKCHIP_VOP=y \
 	CONFIG_ROCKCHIP_VOP2=y \
-	CONFIG_DRM_GEM_CMA_HELPER \
+	CONFIG_DRM_GEM_CMA_HELPER@lt6.1 \
+	CONFIG_DRM_GEM_DMA_HELPER@ge6.1 \
 	CONFIG_DRM_PANEL=y \
 	CONFIG_DRM_PANEL_BRIDGE=y \
 	CONFIG_DRM_PANEL_SIMPLE
@@ -35,13 +37,13 @@ define KernelPackage/drm-rockchip
 	$(LINUX_DIR)/drivers/gpu/drm/bridge/synopsys/dw-hdmi.ko \
 	$(LINUX_DIR)/drivers/gpu/drm/bridge/synopsys/dw-hdmi-cec.ko \
 	$(LINUX_DIR)/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.ko \
-	$(LINUX_DIR)/drivers/media/cec/cec.ko@lt5.10 \
-	$(LINUX_DIR)/drivers/media/cec/core/cec.ko@ge5.10 \
 	$(LINUX_DIR)/drivers/phy/rockchip/phy-rockchip-inno-hdmi.ko \
-	$(LINUX_DIR)/drivers/gpu/drm/drm_cma_helper.ko@ge6.0 \
+	$(LINUX_DIR)/drivers/gpu/drm/drm_dp_aux_bus.ko@lt5.19 \
+	$(LINUX_DIR)/drivers/gpu/drm/drm_dma_helper.ko@ge6.1 \
 	$(LINUX_DIR)/drivers/gpu/drm/panel/panel-simple.ko \
-	$(LINUX_DIR)/drivers/gpu/drm/rockchip/rockchipdrm.ko
-  AUTOLOAD:=$(call AutoProbe,rockchipdrm phy-rockchip-inno-hdmi dw-hdmi-cec)
+	$(LINUX_DIR)/drivers/gpu/drm/rockchip/rockchipdrm.ko \
+	$(LINUX_DIR)/drivers/media/cec/core/cec.ko
+  AUTOLOAD:=$(call AutoProbe,dw-hdmi-cec phy-rockchip-inno-hdmi rockchipdrm,1)
 endef
 
 define KernelPackage/drm-rockchip/description

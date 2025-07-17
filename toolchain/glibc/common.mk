@@ -7,15 +7,16 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=glibc
-PKG_VERSION:=2.35
+PKG_VERSION:=2.37
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
-PKG_SOURCE_VERSION:=813a8d01716d4e099ec57194a93b14fa08b4beca
-PKG_MIRROR_HASH:=8c8d92dde334f0e0f9a0949d25b2950db513ce8723c31ae0b0ef64730a00322f
+PKG_SOURCE_VERSION:=b4e23c75aea756b4bddc4abcf27a1c6dca8b6bd3
+PKG_MIRROR_HASH:=4d5b3de6ec7b47427700f74fdb529e32083b54a512f6ca86ec824a61092ecdd4
 PKG_SOURCE_URL:=https://sourceware.org/git/glibc.git
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION)-$(PKG_SOURCE_VERSION).tar.xz
+PKG_CPE_ID:=cpe:/a:gnu:glibc
 
 HOST_BUILD_DIR:=$(BUILD_DIR_TOOLCHAIN)/$(PKG_SOURCE_SUBDIR)
 CUR_BUILD_DIR:=$(HOST_BUILD_DIR)-$(VARIANT)
@@ -79,11 +80,6 @@ define Host/SetToolchainInfo
 endef
 
 define Host/Configure
-	[ -f $(HOST_BUILD_DIR)/.autoconf ] || { \
-		cd $(HOST_BUILD_DIR)/; \
-		autoconf --force && \
-		touch $(HOST_BUILD_DIR)/.autoconf; \
-	}
 	mkdir -p $(CUR_BUILD_DIR)
 	( cd $(CUR_BUILD_DIR); rm -f config.cache; \
 		$(GLIBC_CONFIGURE) \

@@ -25,6 +25,8 @@ my @mirrors;
 my $ok;
 
 my $check_certificate = $ENV{DOWNLOAD_CHECK_CERTIFICATE} eq "y";
+my $custom_tool = $ENV{DOWNLOAD_TOOL_CUSTOM};
+my $download_tool;
 
 $url_filename or $url_filename = $filename;
 
@@ -85,35 +87,54 @@ sub tool_present {
 	return $present
 }
 
+sub select_tool {
+	$custom_tool =~ tr/"//d;
+	if ($custom_tool) {
+		return $custom_tool;
+	}
+
+	# Try to use curl if available
+	if (tool_present("curl", "curl")) {
+		return "curl";
+	}
+
+	# No tool found, fallback to wget
+	return "wget";
+}
+
 sub download_cmd {
 	my $url = shift;
 	my $filename = shift;
-	my $additional_mirrors = join(" ", map "$_/$filename", @_);
 
-	my @chArray = ('a'..'z', 'A'..'Z', 0..9);
-	my $rfn = join '', "${filename}_", map{ $chArray[int rand @chArray] } 0..9;
+	if ($download_tool eq "curl") {
+		return (qw(curl -f --connect-timeout 20 --retry 5 --location),
+			$check_certificate ? () : '--insecure',
+			shellwords($ENV{CURL_OPTIONS} || ''),
+			$url);
+	} elsif ($download_tool eq "wget") {
+		return (qw(wget --tries=5 --timeout=20 --output-document=-),
+			$check_certificate ? () : '--no-check-certificate',
+			shellwords($ENV{WGET_OPTIONS} || ''),
+			$url);
+	} elsif ($download_tool eq "aria2c") {
+		my $additional_mirrors = join(" ", map "$_/$filename", @_);
+		my @chArray = ('a'..'z', 'A'..'Z', 0..9);
+		my $rfn = join '', "${filename}_", map{ $chArray[int rand @chArray] } 0..9;
 
-	if (tool_present('aria2c', 'aria2')) {
 		@mirrors=();
+
 		return join(" ", "[ -d $ENV{'TMPDIR'}/aria2c ] || mkdir $ENV{'TMPDIR'}/aria2c;",
 			"touch $ENV{'TMPDIR'}/aria2c/${rfn}_spp;",
 			qw(aria2c --stderr -c -x2 -s10 -j10 -k1M), $url, $additional_mirrors,
 			$check_certificate ? () : '--check-certificate=false',
 			"--server-stat-of=$ENV{'TMPDIR'}/aria2c/${rfn}_spp",
 			"--server-stat-if=$ENV{'TMPDIR'}/aria2c/${rfn}_spp",
+			"--daemon=false --no-conf", shellwords($ENV{ARIA2C_OPTIONS} || ''),
 			"-d $ENV{'TMPDIR'}/aria2c -o $rfn;",
 			"cat $ENV{'TMPDIR'}/aria2c/$rfn;",
 			"rm $ENV{'TMPDIR'}/aria2c/$rfn $ENV{'TMPDIR'}/aria2c/${rfn}_spp");
-	} elsif (tool_present('curl', 'curl')) {
-		return (qw(curl -f --connect-timeout 20 --retry 5 --location),
-			$check_certificate ? () : '--insecure',
-			shellwords($ENV{CURL_OPTIONS} || ''),
-			$url);
 	} else {
-		return (qw(wget --tries=5 --timeout=20 --output-document=-),
-			$check_certificate ? () : '--no-check-certificate',
-			shellwords($ENV{WGET_OPTIONS} || ''),
-			$url);
+		return join(" ", $download_tool, $url);
 	}
 }
 
@@ -228,16 +249,14 @@ foreach my $mirror (@ARGV) {
 	} elsif ($mirror =~ /^\@OPENWRT$/) {
 		# use OpenWrt source server directly
 	} elsif ($mirror =~ /^\@DEBIAN\/(.+)$/) {
+		push @mirrors, "https://mirrors.aliyun.com/debian/$1";
 		push @mirrors, "https://mirrors.tencent.com/debian/$1";
-		push @mirrors, "https://mirrors.tuna.tsinghua.edu.cn/debian/$1";
-		push @mirrors, "https://mirrors.ustc.edu.cn/debian/$1";
 		push @mirrors, "https://ftp.debian.org/debian/$1";
 		push @mirrors, "https://mirror.leaseweb.com/debian/$1";
 		push @mirrors, "https://mirror.netcologne.de/debian/$1";
 	} elsif ($mirror =~ /^\@APACHE\/(.+)$/) {
-		push @mirrors, "https://mirrors.cloud.tencent.com/apache/$1";
-		push @mirrors, "https://mirrors.tuna.tsinghua.edu.cn/apache/$1";
-		push @mirrors, "https://mirrors.ustc.edu.cn/apache/$1";
+		push @mirrors, "https://mirrors.aliyun.com/apache/$1";
+		push @mirrors, "https://mirrors.tencent.com/apache/$1";
 		push @mirrors, "https://mirror.netcologne.de/apache.org/$1";
 		push @mirrors, "https://mirror.aarnet.edu.au/pub/apache/$1";
 		push @mirrors, "https://mirror.csclub.uwaterloo.ca/apache/$1";
@@ -253,8 +272,8 @@ foreach my $mirror (@ARGV) {
 			push @mirrors, "https://raw.githubusercontent.com/$1";
 		}
 	} elsif ($mirror =~ /^\@GNU\/(.+)$/) {
-		push @mirrors, "https://mirrors.tuna.tsinghua.edu.cn/gnu/$1";
-		push @mirrors, "https://mirrors.ustc.edu.cn/gnu/$1";
+		push @mirrors, "https://mirrors.aliyun.com/gnu/$1";
+		push @mirrors, "https://mirrors.tencent.com/gnu/$1";
 		push @mirrors, "https://mirror.csclub.uwaterloo.ca/gnu/$1";
 		push @mirrors, "https://mirror.netcologne.de/gnu/$1";
 		push @mirrors, "http://ftp.kddilabs.jp/GNU/gnu/$1";
@@ -280,7 +299,7 @@ foreach my $mirror (@ARGV) {
 			push @extra, "$extra[0]/longterm/v$1";
 		}
 		foreach my $dir (@extra) {
-			push @mirrors, "https://mirrors.tuna.tsinghua.edu.cn/kernel/$dir";
+			push @mirrors, "https://mirror.iscas.ac.cn/kernel.org/$dir";
 			push @mirrors, "https://mirrors.ustc.edu.cn/kernel.org/$dir";
 			push @mirrors, "https://cdn.kernel.org/pub/$dir";
 			push @mirrors, "https://download.xs4all.nl/ftp.kernel.org/pub/$dir";
@@ -295,12 +314,8 @@ foreach my $mirror (@ARGV) {
 		push @mirrors, "https://download.gnome.org/sources/$1";
 		push @mirrors, "https://mirror.csclub.uwaterloo.ca/gnome/sources/$1";
 		push @mirrors, "http://ftp.acc.umu.se/pub/GNOME/sources/$1";
-		push @mirrors, "http://ftp.kaist.ac.kr/gnome/sources/$1";
-		push @mirrors, "http://www.mirrorservice.org/sites/ftp.gnome.org/pub/GNOME/sources/$1";
-		push @mirrors, "http://mirror.internode.on.net/pub/gnome/sources/$1";
-		push @mirrors, "http://ftp.belnet.be/ftp.gnome.org/sources/$1";
-		push @mirrors, "ftp://ftp.cse.buffalo.edu/pub/Gnome/sources/$1";
-		push @mirrors, "ftp://ftp.nara.wide.ad.jp/pub/X11/GNOME/sources/$1";
+		push @mirrors, "http://ftp.cse.buffalo.edu/pub/Gnome/sources/$1";
+		push @mirrors, "http://ftp.nara.wide.ad.jp/pub/X11/GNOME/sources/$1";
 	} else {
 		push @mirrors, $mirror;
 	}
@@ -327,6 +342,8 @@ if (-f "$target/$filename") {
 		unlink "$target/$filename";
 	};
 }
+
+$download_tool = select_tool();
 
 while (!-f "$target/$filename") {
 	my $mirror = shift @mirrors;

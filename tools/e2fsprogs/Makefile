@@ -9,11 +9,11 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=e2fsprogs
 PKG_CPE_ID:=cpe:/a:e2fsprogs_project:e2fsprogs
-PKG_VERSION:=1.46.5
-PKG_HASH:=2f16c9176704cf645dc69d5b15ff704ae722d665df38b2ed3cfc249757d8d81e
+PKG_VERSION:=1.46.6
+PKG_HASH:=8749efc57cda3b6cfcb16a2d2ccd8b8be676c8827e5bae338aa327219a9c2fc4
 PKG_RELEASE:=1
 
-PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=@KERNEL/linux/kernel/people/tytso/e2fsprogs/v$(PKG_VERSION)/
 
 HOST_BUILD_PARALLEL:=1
@@ -27,23 +27,15 @@ HOST_CFLAGS += $(HOST_FPIC)
 
 HOST_CONFIGURE_ARGS += \
 	--disable-elf-shlibs \
-	--enable-libuuid \
+	--disable-libuuid \
 	--disable-tls \
 	--disable-nls \
-	--enable-threads=pth
+	--enable-threads=pth \
+	--disable-fuse2fs
 
 define Host/Prepare
 	$(call Host/Prepare/Default)
 	rm -rf $(HOST_BUILD_DIR)/doc
-endef
-
-define Host/Install
-	$(Host/Install/Default)
-	$(MAKE) -C $(HOST_BUILD_DIR)/lib/uuid install
-	mkdir -p $(STAGING_DIR_HOST)/include/e2fsprogs
-	$(CP) $(STAGING_DIR_HOST)/include/uuid $(STAGING_DIR_HOST)/include/e2fsprogs/
-	rm -rf $(STAGING_DIR_HOST)/include/uuid
-	$(INSTALL_DATA) $(HOST_BUILD_DIR)/lib/uuid/libuuid.a $(STAGING_DIR_HOST)/lib/
 endef
 
 define Host/Clean
